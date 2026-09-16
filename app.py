@@ -22,8 +22,6 @@ from core.config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
     AUTO_UPLOAD_TELEGRAM,
-    get_active_config,
-    save_persistent_settings,
 )
 from core.guide import EpisodeGuide, format_size
 from core.scraper import ReelFrenScraper
@@ -508,61 +506,3 @@ def play_video(req: PlayRequest):
             subprocess.Popen(["xdg-open", req.video_path])
         return {"status": "playing", "path": req.video_path}
     raise HTTPException(status_code=404, detail="Video file does not exist")
-
-
-class SettingsModel(BaseModel):
-    stealth_headless: Optional[bool] = None
-    telegram_bot_token: Optional[str] = None
-    telegram_channel_id: Optional[str] = None
-    telegram_api_id: Optional[int] = None
-    telegram_api_hash: Optional[str] = None
-    auto_upload_telegram: Optional[bool] = None
-    download_concurrency: Optional[int] = None
-    downloads_dir: Optional[str] = None
-
-
-class TelegramTestRequest(BaseModel):
-    bot_token: Optional[str] = None
-    channel_id: Optional[str] = None
-
-
-@app.get("/api/settings")
-def get_settings():
-    """Returns current active settings."""
-    cfg = get_active_config()
-    return cfg
-
-
-@app.post("/api/settings")
-def update_settings(req: SettingsModel):
-    """Updates runtime and persistent settings."""
-    updates = req.model_dump(exclude_unset=True)
-    new_cfg = save_persistent_settings(updates)
-    return {"status": "success", "message": "Settings saved successfully", "settings": new_cfg}
-
-
-@app.post("/api/settings/test-telegram")
-def test_telegram(req: TelegramTestRequest):
-    """Tests if the provided Telegram Bot Token is valid."""
-    import requests
-    token = req.bot_token or get_active_config().get("telegram_bot_token")
-    if not token:
-        raise HTTPException(status_code=400, detail="No Bot Token provided to test.")
-
-    try:
-        res = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
-        data = res.json()
-        if data.get("ok"):
-            bot_info = data.get("result", {})
-            return {
-                "ok": True,
-                "message": f"Connected as @{bot_info.get('username')} ({bot_info.get('first_name')})"
-            }
-        else:
-            return {
-                "ok": False,
-                "message": data.get("description", "Invalid bot token")
-            }
-    except Exception as e:
-        return {"ok": False, "message": f"Network error testing Telegram API: {str(e)}"}
-
