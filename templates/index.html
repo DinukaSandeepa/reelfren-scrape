@@ -59,7 +59,19 @@
           <p class="text-xs text-slate-400">Camoufox &bull; FFmpeg Lossless Concat &bull; wzgram MTProto Playable Video</p>
         </div>
       </div>
-      <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-3">
+        <button
+          onclick="openSettingsModal()"
+          class="flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-indigo-500/50 transition-all shadow-sm active:scale-95 cursor-pointer"
+          title="Configure Telegram and Downloader Settings"
+        >
+          <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+          <span>Settings</span>
+        </button>
+
         <div id="status-badge" class="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
           <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse" id="status-dot"></span>
           <span id="status-text">Ready</span>
@@ -679,6 +691,397 @@
       document.getElementById('start-btn-label').innerText = 'Start Process';
       document.getElementById('cancel-btn').classList.add('hidden');
     }
+
+    // ==========================================
+    // SETTINGS MODAL & LOCALSTORAGE INTEGRATION
+    // ==========================================
+    const SETTINGS_STORAGE_KEY = 'reelfren_app_settings';
+
+    function openSettingsModal() {
+      document.getElementById('settings-modal').classList.remove('hidden');
+      document.body.classList.add('overflow-hidden');
+      loadSettingsIntoModal();
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.add('hidden');
+      document.body.classList.remove('overflow-hidden');
+      document.getElementById('tg-test-result').classList.add('hidden');
+    }
+
+    function toggleTokenVisibility() {
+      const input = document.getElementById('setting-bot-token');
+      const icon = document.getElementById('token-eye-icon');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/>';
+      } else {
+        input.type = 'password';
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>';
+      }
+    }
+
+    function updateConcurrencyLabel(val) {
+      document.getElementById('concurrency-label').innerText = val + (val === '1' ? ' worker' : ' workers');
+    }
+
+    function populateModalFields(cfg) {
+      if (!cfg) return;
+      if (cfg.telegram_bot_token !== undefined) document.getElementById('setting-bot-token').value = cfg.telegram_bot_token;
+      if (cfg.telegram_channel_id !== undefined) document.getElementById('setting-channel-id').value = cfg.telegram_channel_id;
+      if (cfg.telegram_api_id !== undefined) document.getElementById('setting-api-id').value = cfg.telegram_api_id;
+      if (cfg.telegram_api_hash !== undefined) document.getElementById('setting-api-hash').value = cfg.telegram_api_hash;
+      if (cfg.auto_upload_telegram !== undefined) {
+        document.getElementById('setting-auto-upload').checked = !!cfg.auto_upload_telegram;
+        document.getElementById('auto-upload-tg').checked = !!cfg.auto_upload_telegram;
+      }
+      if (cfg.stealth_headless !== undefined) document.getElementById('setting-headless').checked = !!cfg.stealth_headless;
+      if (cfg.download_concurrency !== undefined) {
+        document.getElementById('setting-concurrency').value = cfg.download_concurrency;
+        updateConcurrencyLabel(String(cfg.download_concurrency));
+      }
+      if (cfg.downloads_dir !== undefined) document.getElementById('setting-downloads-dir').value = cfg.downloads_dir;
+    }
+
+    function readModalFields() {
+      return {
+        telegram_bot_token: document.getElementById('setting-bot-token').value.trim(),
+        telegram_channel_id: document.getElementById('setting-channel-id').value.trim(),
+        telegram_api_id: parseInt(document.getElementById('setting-api-id').value) || 6,
+        telegram_api_hash: document.getElementById('setting-api-hash').value.trim() || "eb06d4abfb49dc3eeb1aeb98ae0f581e",
+        auto_upload_telegram: document.getElementById('setting-auto-upload').checked,
+        stealth_headless: document.getElementById('setting-headless').checked,
+        download_concurrency: parseInt(document.getElementById('setting-concurrency').value) || 4,
+        downloads_dir: document.getElementById('setting-downloads-dir').value.trim(),
+      };
+    }
+
+    async function loadSettingsIntoModal() {
+      // 1. Try localStorage first
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        try {
+          populateModalFields(JSON.parse(stored));
+          return;
+        } catch (e) {}
+      }
+      // 2. Fetch active settings from server
+      try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+          const cfg = await res.json();
+          populateModalFields(cfg);
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cfg));
+        }
+      } catch (err) {
+        console.error('Failed to fetch settings from backend:', err);
+      }
+    }
+
+    async function saveSettings() {
+      const btn = document.getElementById('save-settings-btn');
+      const origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg> Saving...
+      `;
+
+      const cfg = readModalFields();
+
+      try {
+        // Save to browser localStorage
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cfg));
+
+        // Sync to backend
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cfg)
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Failed to save settings');
+        }
+
+        // Also sync main page checkbox
+        document.getElementById('auto-upload-tg').checked = cfg.auto_upload_telegram;
+
+        btn.innerHTML = `
+          <svg class="w-4 h-4 mr-1 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+          </svg> Saved!
+        `;
+        setTimeout(() => {
+          btn.innerHTML = origText;
+          btn.disabled = false;
+          closeSettingsModal();
+        }, 800);
+
+      } catch (err) {
+        alert("Error saving settings: " + err.message);
+        btn.innerHTML = origText;
+        btn.disabled = false;
+      }
+    }
+
+    async function testTelegramConnection() {
+      const btn = document.getElementById('test-tg-btn');
+      const badge = document.getElementById('tg-test-result');
+      const token = document.getElementById('setting-bot-token').value.trim();
+
+      if (!token) {
+        badge.className = 'mt-2 p-2.5 rounded-lg text-xs font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-400 block';
+        badge.innerText = 'Please enter a Bot Token first.';
+        badge.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'Testing...';
+      badge.className = 'mt-2 p-2.5 rounded-lg text-xs font-semibold bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 block';
+      badge.innerText = 'Contacting Telegram Bot API...';
+      badge.classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/settings/test-telegram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bot_token: token })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          badge.className = 'mt-2 p-2.5 rounded-lg text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 block';
+          badge.innerText = '✅ ' + data.message;
+        } else {
+          badge.className = 'mt-2 p-2.5 rounded-lg text-xs font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-300 block';
+          badge.innerText = '❌ ' + (data.message || 'Telegram test failed.');
+        }
+      } catch (err) {
+        badge.className = 'mt-2 p-2.5 rounded-lg text-xs font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-300 block';
+        badge.innerText = '❌ Connection failed: ' + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Test Bot';
+      }
+    }
+
+    // Auto-sync settings on initial page load
+    document.addEventListener('DOMContentLoaded', () => {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (stored) {
+        try {
+          const cfg = JSON.parse(stored);
+          populateModalFields(cfg);
+          // Sync to backend silently
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cfg)
+          }).catch(() => {});
+          return;
+        } catch(e) {}
+      }
+      // Fallback: fetch from backend
+      fetch('/api/settings')
+        .then(r => r.json())
+        .then(cfg => {
+          populateModalFields(cfg);
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(cfg));
+        })
+        .catch(() => {});
+    });
   </script>
+
+  <!-- Settings Modal Dialog -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col my-8 animate-in fade-in zoom-in-95 duration-200">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+        <div class="flex items-center space-x-2.5">
+          <div class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-white">Application Settings</h2>
+            <p class="text-xs text-slate-400">Settings are saved in your browser and synced across runs</p>
+          </div>
+        </div>
+        <button onclick="closeSettingsModal()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+        
+        <!-- Telegram Section -->
+        <div class="space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+            <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span>✈️</span> Telegram &amp; wzgram Video Upload
+            </h3>
+            <label class="inline-flex items-center cursor-pointer gap-2 text-xs text-slate-300 select-none">
+              <input type="checkbox" id="setting-auto-upload" class="sr-only peer">
+              <div class="relative w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-indigo-600"></div>
+              <span>Auto Upload</span>
+            </label>
+          </div>
+
+          <!-- Bot Token -->
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1.5">Telegram Bot Token</label>
+            <div class="relative">
+              <input
+                type="password"
+                id="setting-bot-token"
+                placeholder="8747921644:AAE8Pv2..."
+                class="w-full pl-3.5 pr-24 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <div class="absolute inset-y-0 right-1 flex items-center space-x-1 pr-1">
+                <button
+                  type="button"
+                  onclick="toggleTokenVisibility()"
+                  class="p-1 text-slate-400 hover:text-white rounded transition"
+                  title="Show/Hide Token"
+                >
+                  <svg id="token-eye-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  id="test-tg-btn"
+                  onclick="testTelegramConnection()"
+                  class="px-2.5 py-1 bg-indigo-600/80 hover:bg-indigo-600 text-[11px] font-semibold text-white rounded-lg transition"
+                >
+                  Test Bot
+                </button>
+              </div>
+            </div>
+            <div id="tg-test-result" class="hidden"></div>
+          </div>
+
+          <!-- Channel ID -->
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1.5">Telegram Channel ID</label>
+            <input
+              type="text"
+              id="setting-channel-id"
+              placeholder="-1004390455583"
+              class="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <p class="text-[11px] text-slate-500 mt-1">Make sure your bot is added as an administrator with post privileges.</p>
+          </div>
+
+          <!-- MTProto Fast Upload (API ID & Hash) -->
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Telegram API ID</label>
+              <input
+                type="text"
+                id="setting-api-id"
+                placeholder="1627545"
+                class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Telegram API Hash</label>
+              <input
+                type="text"
+                id="setting-api-hash"
+                placeholder="64e277a5e717..."
+                class="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance & Scraper Engine -->
+        <div class="space-y-4 pt-2 border-t border-slate-800">
+          <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+            <span>⚡</span> Downloader &amp; Scraper Engine
+          </h3>
+
+          <!-- Concurrency Slider -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-xs font-medium text-slate-300">Parallel Download Concurrency</label>
+              <span id="concurrency-label" class="text-xs font-mono font-bold text-indigo-400">4 workers</span>
+            </div>
+            <input
+              type="range"
+              id="setting-concurrency"
+              min="1"
+              max="8"
+              value="4"
+              oninput="updateConcurrencyLabel(this.value)"
+              class="w-full accent-indigo-500 bg-slate-950 rounded-lg cursor-pointer h-2"
+            />
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>1 (Sequential)</span>
+              <span>4 (Recommended)</span>
+              <span>8 (Maximum Turbo)</span>
+            </div>
+          </div>
+
+          <!-- Stealth Headless Toggle -->
+          <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+            <div>
+              <span class="text-xs font-semibold text-slate-200 block">Stealth Headless Mode</span>
+              <span class="text-[11px] text-slate-400">Run Camoufox in background without opening a visible browser window</span>
+            </div>
+            <label class="inline-flex items-center cursor-pointer select-none">
+              <input type="checkbox" id="setting-headless" class="sr-only peer">
+              <div class="relative w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+
+          <!-- Downloads Directory -->
+          <div>
+            <label class="block text-xs font-medium text-slate-300 mb-1">Downloads Directory</label>
+            <input
+              type="text"
+              id="setting-downloads-dir"
+              placeholder="Leave empty for default (./downloads)"
+              class="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
+        <button
+          type="button"
+          onclick="closeSettingsModal()"
+          class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          id="save-settings-btn"
+          onclick="saveSettings()"
+          class="inline-flex items-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-xl shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+        >
+          Save Settings
+        </button>
+      </div>
+
+    </div>
+  </div>
 </body>
 </html>

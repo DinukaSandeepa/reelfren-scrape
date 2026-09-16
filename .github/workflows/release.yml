@@ -1,0 +1,121 @@
+name: Release Desktop Apps (DMG & EXE)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - name: Determine Release Tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+  build-tauri:
+    needs: release-metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            target: 'aarch64-apple-darwin'
+            args: '--target aarch64-apple-darwin'
+            os_name: 'macOS Apple Silicon'
+          - platform: 'macos-13'
+            target: 'x86_64-apple-darwin'
+            args: '--target x86_64-apple-darwin'
+            os_name: 'macOS Intel'
+          - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+            args: '--target x86_64-pc-windows-msvc'
+            os_name: 'Windows x64'
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          python -m camoufox fetch || true
+
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ffmpeg
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install ffmpeg
+
+      - name: Build Python Sidecar Binary
+        run: |
+          python scripts/build_sidecar.py ${{ matrix.target }}
+
+      - name: Install Node Dependencies
+        run: |
+          npm install
+
+      - name: Build Desktop App and Publish Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ needs.release-metadata.outputs.release_tag }}
+          releaseName: 'ReelFren Downloader ${{ needs.release-metadata.outputs.release_tag }}'
+          releaseBody: |
+            ## 🎬 ReelFren Downloader Desktop Release (${{ needs.release-metadata.outputs.release_tag }})
+
+            ### 📦 Download Assets:
+            - **macOS (Apple Silicon M1/M2/M3/M4)**: `.dmg`
+            - **macOS (Intel)**: `.dmg`
+            - **Windows (x64)**: `.exe` installer / setup
+
+            ### ✨ Key Features:
+            - Full Desktop GUI with Native Window & System Integration.
+            - High-Speed Parallel HLS (`.m3u8`) & Direct MP4 stream downloader (up to 113x).
+            - Lossless FFmpeg concatenation with automatic chapter markers.
+            - Telegram Channel Auto-Upload via wzgram MTProto.
+            - Built-in In-App Settings Modal with LocalStorage persistence.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
