@@ -3,15 +3,11 @@
 
 use std::net::SocketAddr;
 use std::net::TcpStream;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
-
-struct AppState {
-    backend_child: Mutex<Option<CommandChild>>,
-}
 
 fn is_backend_listening() -> bool {
     let addr: SocketAddr = "127.0.0.1:8000".parse().unwrap();
@@ -31,12 +27,13 @@ fn wait_for_backend(timeout_secs: u64) -> bool {
 }
 
 fn main() {
+    let backend_child: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
+    let child_for_setup = Arc::clone(&backend_child);
+    let child_for_exit = Arc::clone(&backend_child);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(AppState {
-            backend_child: Mutex::new(None),
-        })
-        .setup(|app| {
+        .setup(move |app| {
             // 1. Check if backend is already running
             if !is_backend_listening() {
                 // Spawn Python backend sidecar binary
@@ -45,8 +42,7 @@ fn main() {
                         match command.spawn() {
                             Ok((_rx, child)) => {
                                 println!("[Tauri] Spawned reelfren-backend sidecar.");
-                                let state = app.state::<AppState>();
-                                if let Ok(mut lock) = state.backend_child.lock() {
+                                if let Ok(mut lock) = child_for_setup.lock() {
                                     *lock = Some(child);
                                 }
                             }
@@ -75,11 +71,10 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app_handle, event| {
+        .run(move |_app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 // Ensure backend sidecar is terminated on app exit
-                let state = app_handle.state::<AppState>();
-                if let Ok(mut lock) = state.backend_child.lock() {
+                if let Ok(mut lock) = child_for_exit.lock() {
                     if let Some(child) = lock.take() {
                         let _ = child.kill();
                         println!("[Tauri] Cleaned up backend sidecar process.");
