@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReelFren Drama Downloader & Merger</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Navigation Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/70 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            ReelFren Downloader <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">1080p Ultra</span>
+          </h1>
+          <p class="text-xs text-slate-400">Strict 100% Download & Lossless FFmpeg Merge</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-4">
+        <div id="status-badge" class="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+          <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse" id="status-dot"></span>
+          <span id="status-text">Ready</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+    <!-- Input Card -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+      <div class="space-y-4">
+        <div>
+          <label for="drama-url" class="block text-sm font-medium text-slate-300 mb-2">ReelFren Drama URL</label>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                </svg>
+              </div>
+              <input
+                type="url"
+                id="drama-url"
+                value="https://reelfren.com/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en"
+                placeholder="https://reelfren.com/drama/dramabox/..."
+                class="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+              />
+            </div>
+            <button
+              id="start-btn"
+              onclick="startJob()"
+              class="inline-flex items-center justify-center px-6 py-3 border border-transparent rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] transition-all duration-150 shadow-lg shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg id="start-icon" class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <span id="start-btn-label">Start Process</span>
+            </button>
+            <button
+              id="cancel-btn"
+              onclick="cancelJob()"
+              class="hidden inline-flex items-center justify-center px-5 py-3 border border-rose-500/30 rounded-xl text-sm font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 transition-all duration-150"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <!-- Failure & Retry Banner -->
+        <div id="failed-alert" class="hidden border border-rose-500/40 bg-rose-950/30 rounded-xl p-4 transition-all">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex items-start gap-3">
+              <div class="p-2 rounded-lg bg-rose-500/20 text-rose-400 mt-0.5">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-rose-300">Merge Blocked: Incomplete Episodes</h3>
+                <p id="failed-alert-msg" class="text-xs text-rose-200/80 mt-1">
+                  Merging has been halted because one or more episodes failed to download. You must re-download them first.
+                </p>
+              </div>
+            </div>
+            <button
+              onclick="retryFailed()"
+              class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-rose-600/30 transition-all flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              Retry Failed Episodes
+            </button>
+          </div>
+        </div>
+
+        <!-- Stepper Indicators -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2">
+          <div id="step-1" class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-center">
+            <span class="text-xs font-semibold text-slate-400 block">1. Turnstile</span>
+            <span class="text-[10px] text-slate-500">Auto Camoufox Bypass</span>
+          </div>
+          <div id="step-2" class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-center">
+            <span class="text-xs font-semibold text-slate-400 block">2. 1080p Discovery</span>
+            <span class="text-[10px] text-slate-500">Highest Quality Streams</span>
+          </div>
+          <div id="step-3" class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-center">
+            <span class="text-xs font-semibold text-slate-400 block">3. 100% Download</span>
+            <span class="text-[10px] text-slate-500">Multi-Sweep Retries</span>
+          </div>
+          <div id="step-4" class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-center">
+            <span class="text-xs font-semibold text-slate-400 block">4. FFmpeg Merge</span>
+            <span class="text-[10px] text-slate-500">Lossless + Chapters</span>
+          </div>
+          <div id="step-5" class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-center">
+            <span class="text-xs font-semibold text-slate-400 block">5. Complete</span>
+            <span class="text-[10px] text-slate-500">Ready to Play</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Progress & Stats -->
+    <div id="progress-container" class="hidden grid grid-cols-1 md:grid-cols-3 gap-6">
+      
+      <!-- Overall Progress Card -->
+      <div class="md:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 id="drama-title-heading" class="text-base font-bold text-white">Drama Title</h3>
+            <p id="progress-subtext" class="text-xs text-slate-400 mt-0.5">Initializing workflow...</p>
+          </div>
+          <div class="text-right">
+            <span id="overall-percentage" class="text-2xl font-black text-indigo-400 font-mono">0%</span>
+          </div>
+        </div>
+
+        <!-- Overall Progress Bar -->
+        <div class="w-full bg-slate-950 rounded-full h-3.5 p-0.5 border border-slate-800">
+          <div id="overall-bar" class="bg-gradient-to-r from-indigo-500 to-violet-500 h-full rounded-full transition-all duration-300 w-0"></div>
+        </div>
+
+        <!-- Current Episode Download Bar -->
+        <div id="episode-progress-box" class="space-y-1.5 pt-2">
+          <div class="flex justify-between text-xs text-slate-400">
+            <span id="current-ep-label">Current Episode: --</span>
+            <span id="current-ep-speed" class="font-mono text-indigo-300">0.0 MB/s</span>
+          </div>
+          <div class="w-full bg-slate-950 rounded-full h-2 border border-slate-800">
+            <div id="current-ep-bar" class="bg-indigo-400 h-full rounded-full transition-all duration-150 w-0"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between space-y-4">
+        <h3 class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Download Status</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-xs text-slate-400 block">Total Episodes</span>
+            <span id="stat-total-eps" class="text-xl font-bold text-white font-mono">0</span>
+          </div>
+          <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-xs text-slate-400 block">Downloaded</span>
+            <span id="stat-downloaded-eps" class="text-xl font-bold text-emerald-400 font-mono">0</span>
+          </div>
+          <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-xs text-slate-400 block">Total Size</span>
+            <span id="stat-total-size" class="text-xl font-bold text-indigo-300 font-mono">0 MB</span>
+          </div>
+          <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+            <span class="text-xs text-slate-400 block">Merge Status</span>
+            <span id="stat-merge-status" class="text-xs font-bold text-slate-400 block mt-1">Pending</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Completed Action Box -->
+    <div id="completed-banner" class="hidden bg-gradient-to-r from-emerald-950/40 to-slate-900 border border-emerald-500/30 rounded-2xl p-6 shadow-2xl">
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-emerald-300">Complete Drama Merged (100% Verified)!</h3>
+            <p id="output-video-path" class="text-xs text-slate-300 font-mono mt-0.5 break-all">Output path here...</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button
+            onclick="playVideo()"
+            class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            Play Merged Video
+          </button>
+          <button
+            onclick="openFolder()"
+            class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-xl border border-slate-700 transition-all"
+          >
+            Reveal in Finder
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Split View: Episode Guide Table & Live Log Console -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Episode Guide Table (7 cols) -->
+      <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              Episode Guide
+              <span id="guide-counter" class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-mono">0</span>
+            </h3>
+            <p class="text-xs text-slate-400">Sequential list with Highest Quality (1080p) streams</p>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-x-auto overflow-y-auto max-h-[420px] rounded-xl border border-slate-800">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-950 text-slate-400 uppercase font-semibold sticky top-0 border-b border-slate-800">
+              <tr>
+                <th scope="col" class="px-4 py-3">EP #</th>
+                <th scope="col" class="px-4 py-3">Quality</th>
+                <th scope="col" class="px-4 py-3">Size</th>
+                <th scope="col" class="px-4 py-3">Direct MP4 Stream</th>
+                <th scope="col" class="px-4 py-3 text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody id="episodes-tbody" class="divide-y divide-slate-800/60 font-mono">
+              <tr>
+                <td colspan="5" class="px-4 py-8 text-center text-slate-500 font-sans">
+                  No episodes loaded yet. Enter drama URL and click <strong>Start Process</strong>.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Live Terminal Logs (5 cols) -->
+      <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-base font-bold text-white">Live Activity Logs</h3>
+            <p class="text-xs text-slate-400">Real-time automation activity</p>
+          </div>
+          <button onclick="clearLogs()" class="text-xs text-slate-400 hover:text-slate-200">Clear</button>
+        </div>
+
+        <div
+          id="log-console"
+          class="flex-1 bg-slate-950 rounded-xl p-4 font-mono text-[11px] leading-relaxed text-slate-300 overflow-y-auto max-h-[420px] border border-slate-800 space-y-1 select-text"
+        >
+          <div class="text-slate-600">[System] Awaiting instructions...</div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 bg-slate-950/60 py-4 text-center text-xs text-slate-500">
+    ReelFren Automation Suite &bull; Camoufox Stealth Turnstile Bypass &bull; FFmpeg Lossless Concat
+  </footer>
+
+  <!-- Frontend JavaScript Logic -->
+  <script>
+    let currentJobId = null;
+    let eventSource = null;
+    let finalVideoPath = null;
+    let dramaOutputDir = null;
+
+    function addLog(msg) {
+      const consoleEl = document.getElementById('log-console');
+      const timeStr = new Date().toLocaleTimeString();
+      const div = document.createElement('div');
+      
+      let color = 'text-slate-300';
+      if (msg.toLowerCase().includes('error') || msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('cannot merge')) color = 'text-rose-400 font-semibold';
+      else if (msg.toLowerCase().includes('success') || msg.toLowerCase().includes('finished') || msg.toLowerCase().includes('passed') || msg.toLowerCase().includes('complete')) color = 'text-emerald-400';
+      else if (msg.toLowerCase().includes('turnstile') || msg.toLowerCase().includes('warning') || msg.toLowerCase().includes('retry')) color = 'text-amber-300';
+      else if (msg.toLowerCase().includes('downloading')) color = 'text-indigo-300';
+
+      div.className = color;
+      div.innerText = `[${timeStr}] ${msg}`;
+      consoleEl.appendChild(div);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById('log-console').innerHTML = '';
+    }
+
+    function setStep(stepNum) {
+      for (let i = 1; i <= 5; i++) {
+        const el = document.getElementById(`step-${i}`);
+        if (i < stepNum) {
+          el.className = "p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/40 text-center";
+          el.children[0].className = "text-xs font-semibold text-emerald-400 block";
+        } else if (i === stepNum) {
+          el.className = "p-2.5 rounded-lg bg-indigo-950/50 border border-indigo-500 text-center ring-1 ring-indigo-500/50 animate-pulse";
+          el.children[0].className = "text-xs font-semibold text-indigo-300 block";
+        } else {
+          el.className = "p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-center";
+          el.children[0].className = "text-xs font-semibold text-slate-400 block";
+        }
+      }
+    }
+
+    async function startJob() {
+      const urlInput = document.getElementById('drama-url');
+      const dramaUrl = urlInput.value.trim();
+      if (!dramaUrl) {
+        alert('Please provide a ReelFren drama URL.');
+        return;
+      }
+
+      document.getElementById('start-btn').disabled = true;
+      document.getElementById('start-btn-label').innerText = 'Processing...';
+      document.getElementById('cancel-btn').classList.remove('hidden');
+      document.getElementById('progress-container').classList.remove('hidden');
+      document.getElementById('completed-banner').classList.add('hidden');
+      document.getElementById('failed-alert').classList.add('hidden');
+      
+      setStep(1);
+      document.getElementById('status-text').innerText = 'Starting...';
+      document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+
+      try {
+        const res = await fetch('/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ drama_url: dramaUrl })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to start job');
+
+        currentJobId = data.job_id;
+        addLog(`Started job ${currentJobId} for ${dramaUrl}`);
+        connectSSE(currentJobId);
+      } catch (err) {
+        alert('Error starting job: ' + err.message);
+        resetControls();
+      }
+    }
+
+    function connectSSE(jobId) {
+      if (eventSource) eventSource.close();
+
+      eventSource = new EventSource(`/api/events/${jobId}`);
+
+      eventSource.onmessage = (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          handleJobUpdate(payload);
+        } catch (err) {
+          console.error("SSE parse error", err);
+        }
+      };
+
+      eventSource.onerror = (e) => {
+        console.warn("SSE connection error", e);
+      };
+    }
+
+    function handleJobUpdate(job) {
+      if (!job) return;
+
+      document.getElementById('status-text').innerText = job.status.toUpperCase();
+      if (job.drama_title) {
+        document.getElementById('drama-title-heading').innerText = job.drama_title;
+      }
+
+      // Steps transition
+      if (job.status === 'turnstile_wait') setStep(1);
+      else if (job.status === 'scraping') setStep(2);
+      else if (job.status === 'downloading') setStep(3);
+      else if (job.status === 'merging') setStep(4);
+      else if (job.status === 'completed') setStep(5);
+
+      // Logs
+      if (job.logs && job.logs.length > 0) {
+        const consoleEl = document.getElementById('log-console');
+        const existingCount = consoleEl.children.length;
+        if (job.logs.length > existingCount) {
+          for (let i = existingCount; i < job.logs.length; i++) {
+            addLog(job.logs[i]);
+          }
+        }
+      }
+
+      // Progress bars
+      const overallPct = job.overall_progress || 0;
+      document.getElementById('overall-percentage').innerText = `${Math.round(overallPct)}%`;
+      document.getElementById('overall-bar').style.width = `${overallPct}%`;
+
+      document.getElementById('current-ep-label').innerText = `Current Episode: ${job.current_episode || '--'}`;
+      document.getElementById('current-ep-speed').innerText = job.download_speed || '0.0 MB/s';
+      document.getElementById('current-ep-bar').style.width = `${job.episode_progress || 0}%`;
+      document.getElementById('progress-subtext').innerText = job.status_message || job.status;
+
+      // Metrics
+      const episodes = job.episodes || [];
+      document.getElementById('stat-total-eps').innerText = episodes.length;
+      document.getElementById('guide-counter').innerText = episodes.length;
+
+      const downloadedCount = episodes.filter(e => e.status === 'downloaded').length;
+      document.getElementById('stat-downloaded-eps').innerText = downloadedCount;
+
+      const totalBytes = episodes.reduce((acc, e) => acc + (e.file_size || 0), 0);
+      document.getElementById('stat-total-size').innerText = formatSize(totalBytes);
+
+      const mergeStatusEl = document.getElementById('stat-merge-status');
+      mergeStatusEl.innerText = job.merge_status || 'Pending';
+      if (job.merge_status === 'Blocked') {
+        mergeStatusEl.className = 'text-xs font-bold text-rose-400 block mt-1';
+      } else if (job.merge_status === 'Completed') {
+        mergeStatusEl.className = 'text-xs font-bold text-emerald-400 block mt-1';
+      } else {
+        mergeStatusEl.className = 'text-xs font-bold text-slate-400 block mt-1';
+      }
+
+      renderEpisodesTable(episodes);
+
+      // Handle Failed State
+      if (job.status === 'failed') {
+        document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-rose-500';
+        const failedAlert = document.getElementById('failed-alert');
+        failedAlert.classList.remove('hidden');
+        if (job.failed_episodes && job.failed_episodes.length > 0) {
+          document.getElementById('failed-alert-msg').innerText = 
+            `Cannot merge without all episodes! Episode(s) ${job.failed_episodes.join(', ')} failed to download. Click "Retry Failed Episodes" to retry.`;
+        } else {
+          document.getElementById('failed-alert-msg').innerText = job.status_message || "An error occurred.";
+        }
+        resetControls();
+      }
+
+      // Handle Completed State
+      if (job.status === 'completed') {
+        finalVideoPath = job.output_video;
+        dramaOutputDir = job.output_dir;
+        document.getElementById('output-video-path').innerText = finalVideoPath || 'Done';
+        document.getElementById('completed-banner').classList.remove('hidden');
+        document.getElementById('failed-alert').classList.add('hidden');
+        document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-emerald-400';
+        resetControls();
+      }
+    }
+
+    function renderEpisodesTable(episodes) {
+      const tbody = document.getElementById('episodes-tbody');
+      if (!episodes || episodes.length === 0) return;
+
+      tbody.innerHTML = '';
+      episodes.forEach(ep => {
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-800/40 transition-colors";
+
+        let statusBadge = '';
+        if (ep.status === 'downloaded') {
+          statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Downloaded</span>';
+        } else if (ep.status === 'downloading') {
+          statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 animate-pulse">Downloading</span>';
+        } else if (ep.status === 'ready') {
+          statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30">Stream Found</span>';
+        } else if (ep.status === 'failed') {
+          statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold">Failed</span>';
+        } else {
+          statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">Pending</span>';
+        }
+
+        const qualityBadge = `<span class="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold font-sans">${ep.quality || '1080p'}</span>`;
+
+        const videoLink = ep.video_url
+          ? `<a href="${ep.video_url}" target="_blank" class="text-indigo-400 hover:underline inline-block max-w-[200px] truncate" title="${ep.video_url}">${ep.video_url.split('/').pop()}</a>`
+          : '<span class="text-slate-600">Resolving...</span>';
+
+        tr.innerHTML = `
+          <td class="px-4 py-2.5 font-bold text-slate-200">EP ${ep.episode}</td>
+          <td class="px-4 py-2.5">${qualityBadge}</td>
+          <td class="px-4 py-2.5 text-slate-400">${formatSize(ep.file_size)}</td>
+          <td class="px-4 py-2.5 font-mono">${videoLink}</td>
+          <td class="px-4 py-2.5 text-right">${statusBadge}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function formatSize(bytes) {
+      if (!bytes || bytes <= 0) return '0 MB';
+      const mb = bytes / (1024 * 1024);
+      if (mb >= 1000) return (mb / 1024).toFixed(2) + ' GB';
+      return mb.toFixed(1) + ' MB';
+    }
+
+    async function retryFailed() {
+      if (!currentJobId) return;
+      document.getElementById('failed-alert').classList.add('hidden');
+      document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+      document.getElementById('status-text').innerText = 'Retrying...';
+      try {
+        const res = await fetch(`/api/retry/${currentJobId}`, { method: 'POST' });
+        if (!res.ok) {
+          const data = await res.json();
+          alert('Could not retry: ' + (data.detail || 'Unknown error'));
+        }
+      } catch (err) {
+        alert('Retry request error: ' + err);
+      }
+    }
+
+    async function cancelJob() {
+      if (!currentJobId) return;
+      if (!confirm("Are you sure you want to cancel the current job?")) return;
+      try {
+        await fetch(`/api/cancel/${currentJobId}`, { method: 'POST' });
+        addLog("Cancellation requested.");
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function openFolder() {
+      try {
+        await fetch('/api/open-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder_path: dramaOutputDir })
+        });
+      } catch (err) {
+        alert("Could not open folder: " + err);
+      }
+    }
+
+    async function playVideo() {
+      try {
+        await fetch('/api/play-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ video_path: finalVideoPath })
+        });
+      } catch (err) {
+        alert("Could not launch video: " + err);
+      }
+    }
+
+    function resetControls() {
+      document.getElementById('start-btn').disabled = false;
+      document.getElementById('start-btn-label').innerText = 'Start Process';
+      document.getElementById('cancel-btn').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
