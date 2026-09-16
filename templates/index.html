@@ -261,6 +261,7 @@
         </div>
         <div class="flex items-center flex-wrap gap-2.5">
           <button
+            id="play-video-btn"
             onclick="playVideo()"
             class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5"
           >
@@ -545,11 +546,28 @@
       if (job.status === 'completed') {
         finalVideoPath = job.output_video;
         dramaOutputDir = job.output_dir;
-        document.getElementById('output-video-path').innerText = finalVideoPath || 'Done';
+
+        const pathEl = document.getElementById('output-video-path');
+        const playBtn = document.getElementById('play-video-btn');
+
+        if (job.cleaned_up) {
+          pathEl.innerHTML = `<span class="line-through opacity-70">${finalVideoPath || ''}</span> <span class="text-amber-400 font-medium ml-2">🧹 (Cleaned up from disk after upload)</span>`;
+          if (playBtn) {
+            playBtn.classList.add('opacity-40', 'cursor-not-allowed');
+            playBtn.title = 'Video file was cleaned up from local disk after upload';
+          }
+        } else {
+          pathEl.innerText = finalVideoPath || 'Done';
+          if (playBtn) {
+            playBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+            playBtn.title = '';
+          }
+        }
         
         const tgNote = document.getElementById('telegram-upload-note');
         if (job.upload_status === 'Uploaded') {
-          tgNote.innerHTML = `✅ <strong>Uploaded to Telegram channel</strong> as playable video (Message ID: ${job.telegram_message_id || 'Sent'})`;
+          const cleanSuffix = job.cleaned_up ? ' &bull; <span class="text-emerald-300">Download folder cleaned</span>' : '';
+          tgNote.innerHTML = `✅ <strong>Uploaded to Telegram channel</strong> as playable video (Message ID: ${job.telegram_message_id || 'Sent'})${cleanSuffix}`;
           document.getElementById('tg-upload-btn').classList.add('hidden');
         } else {
           tgNote.innerHTML = '';

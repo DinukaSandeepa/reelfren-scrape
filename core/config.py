@@ -28,6 +28,8 @@ TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "").strip()
 TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID", "6"))
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "eb06d4abfb49dc3eeb1aeb98ae0f581e").strip()
 AUTO_UPLOAD_TELEGRAM = os.getenv("AUTO_UPLOAD_TELEGRAM", "true").lower() in ("true", "1", "yes")
+CLEAN_DOWNLOADS_AFTER_UPLOAD = os.getenv("CLEAN_DOWNLOADS_AFTER_UPLOAD", "true").lower() in ("true", "1", "yes")
+
 
 # Downloader Settings
 DOWNLOAD_CONCURRENCY = int(os.getenv("DOWNLOAD_CONCURRENCY", "4"))

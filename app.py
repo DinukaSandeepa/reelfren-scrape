@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import uuid
+import shutil
 import asyncio
 import threading
 import subprocess
@@ -22,6 +23,7 @@ from core.config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHANNEL_ID,
     AUTO_UPLOAD_TELEGRAM,
+    CLEAN_DOWNLOADS_AFTER_UPLOAD,
 )
 from core.guide import EpisodeGuide, format_size
 from core.scraper import ReelFrenScraper
@@ -64,6 +66,7 @@ class JobState:
         self.output_video: Optional[str] = None
         self.output_dir: Optional[str] = None
         self.telegram_message_id: Optional[int] = None
+        self.cleaned_up: bool = False
 
         self.cancelled = False
         self.turnstile_verified = False
@@ -94,6 +97,7 @@ class JobState:
             "output_video": self.output_video,
             "output_dir": self.output_dir,
             "telegram_message_id": self.telegram_message_id,
+            "cleaned_up": self.cleaned_up,
         }
 
 
@@ -112,6 +116,57 @@ class FolderRequest(BaseModel):
 
 class PlayRequest(BaseModel):
     video_path: Optional[str] = None
+
+
+def cleanup_download_folder(job: JobState):
+    """Cleans up the download folder content after successful upload to Telegram."""
+    job.add_log("Cleaning download folder content after successful Telegram upload...")
+    cleaned_items: List[str] = []
+
+    try:
+        if job.output_dir:
+            out_path = Path(job.output_dir).resolve()
+            downloads_path = DOWNLOADS_DIR.resolve()
+
+            if out_path.exists():
+                # If output_dir is a subdirectory inside DOWNLOADS_DIR, delete it entirely
+                if downloads_path in out_path.parents:
+                    shutil.rmtree(out_path, ignore_errors=True)
+                    cleaned_items.append(out_path.name)
+                elif out_path == downloads_path:
+                    # If output_dir is DOWNLOADS_DIR itself, remove its contents
+                    for item in out_path.iterdir():
+                        if item.is_dir():
+                            shutil.rmtree(item, ignore_errors=True)
+                        else:
+                            try:
+                                item.unlink()
+                            except Exception:
+                                pass
+                        cleaned_items.append(item.name)
+                else:
+                    # Output path outside DOWNLOADS_DIR
+                    shutil.rmtree(out_path, ignore_errors=True)
+                    cleaned_items.append(out_path.name)
+
+        # In case output video was placed elsewhere, clean it up as well
+        if job.output_video and os.path.exists(job.output_video):
+            try:
+                os.remove(job.output_video)
+                cleaned_items.append(Path(job.output_video).name)
+            except Exception:
+                pass
+
+        # Ensure base DOWNLOADS_DIR exists for subsequent operations
+        DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        job.cleaned_up = True
+
+        if cleaned_items:
+            job.add_log(f"🧹 Download folder content cleaned: removed {', '.join(cleaned_items)}.")
+        else:
+            job.add_log("🧹 Download folder is already clean.")
+    except Exception as e:
+        job.add_log(f"⚠️ Warning cleaning download folder: {e}")
 
 
 def do_telegram_upload(job: JobState):
@@ -169,6 +224,9 @@ def do_telegram_upload(job: JobState):
         job.upload_status = "Uploaded"
         job.telegram_message_id = res.get("message_id")
         job.add_log(f"🎉 Telegram Upload Complete! Message ID: {res.get('message_id')}")
+
+        if CLEAN_DOWNLOADS_AFTER_UPLOAD:
+            cleanup_download_folder(job)
     except Exception as e:
         job.upload_status = "Failed"
         job.add_log(f"❌ Telegram upload error: {e}")
@@ -293,7 +351,10 @@ def run_pipeline(job: JobState, auto_upload: bool = True):
         job.status = "completed"
         job.overall_progress = 100.0
         if job.upload_status == "Uploaded":
-            job.status_message = f"All {total_eps} episodes downloaded, merged, and uploaded to Telegram!"
+            if getattr(job, "cleaned_up", False):
+                job.status_message = f"All {total_eps} episodes downloaded, merged, uploaded to Telegram, and download folder cleaned!"
+            else:
+                job.status_message = f"All {total_eps} episodes downloaded, merged, and uploaded to Telegram!"
         else:
             job.status_message = f"All {total_eps} episodes downloaded and merged successfully!"
 
@@ -373,7 +434,13 @@ def run_retry_pipeline(job: JobState):
 
         job.status = "completed"
         job.overall_progress = 100.0
-        job.status_message = f"All {total_eps} episodes downloaded, merged, and uploaded to Telegram!"
+        if job.upload_status == "Uploaded":
+            if getattr(job, "cleaned_up", False):
+                job.status_message = f"All {total_eps} episodes downloaded, merged, uploaded to Telegram, and download folder cleaned!"
+            else:
+                job.status_message = f"All {total_eps} episodes downloaded, merged, and uploaded to Telegram!"
+        else:
+            job.status_message = f"All {total_eps} episodes downloaded and merged successfully!"
     except Exception as e:
         job.status = "failed"
         job.status_message = f"Merge error: {e}"
@@ -484,6 +551,8 @@ def cancel_job(job_id: str):
 @app.post("/api/open-folder")
 def open_folder(req: FolderRequest):
     folder = req.folder_path or str(DOWNLOADS_DIR)
+    if not os.path.exists(folder) and DOWNLOADS_DIR.exists():
+        folder = str(DOWNLOADS_DIR)
     if os.path.exists(folder):
         if sys.platform == "darwin":
             subprocess.Popen(["open", folder])
@@ -505,4 +574,13 @@ def play_video(req: PlayRequest):
         else:
             subprocess.Popen(["xdg-open", req.video_path])
         return {"status": "playing", "path": req.video_path}
-    raise HTTPException(status_code=404, detail="Video file does not exist")
+    raise HTTPException(status_code=404, detail="Video file does not exist (it may have been cleaned up after Telegram upload)")
+
+
+@app.post("/api/clean/{job_id}")
+def manual_clean_job_downloads(job_id: str):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    cleanup_download_folder(job)
+    return {"status": "cleaned", "job_id": job_id}

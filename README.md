@@ -26,6 +26,9 @@ A specialized automation tool and modern web dashboard to scrape, download, and 
    - **Playable Video**: Uploads as native in-app streaming video (`supports_streaming=True`), **NOT as a document**.
    - **Poster as Thumbnail**: Automatically downloads the drama's official cover poster (`og:image`) and sets it as the video thumbnail.
    - Real-time upload progress bar and speed in the Web UI.
+7. **Automatic Local Disk Cleanup**:
+   - Automatically cleans up the download folder content (raw episode chunks, temporary files, and merged files) once the drama is successfully uploaded to Telegram to conserve disk space.
+   - Configurable via `CLEAN_DOWNLOADS_AFTER_UPLOAD` (defaults to `true`).
 
 ---
 
@@ -48,6 +51,7 @@ TELEGRAM_CHANNEL_ID="your_channel_id"
 TELEGRAM_API_ID=6
 TELEGRAM_API_HASH="eb06d4abfb49dc3eeb1aeb98ae0f581e"
 AUTO_UPLOAD_TELEGRAM=true
+CLEAN_DOWNLOADS_AFTER_UPLOAD=true
 STEALTH_HEADLESS=false
 ```
 
