@@ -39,15 +39,16 @@ jobs:
             target: 'aarch64-apple-darwin'
             args: '--target aarch64-apple-darwin'
             os_name: 'macOS Apple Silicon'
+          - platform: 'macos-13'
+            target: 'x86_64-apple-darwin'
+            args: '--target x86_64-apple-darwin'
+            os_name: 'macOS Intel'
           - platform: 'windows-latest'
             target: 'x86_64-pc-windows-msvc'
             args: '--target x86_64-pc-windows-msvc'
             os_name: 'Windows x64'
 
     runs-on: ${{ matrix.platform }}
-    env:
-      PYTHONIOENCODING: 'utf-8'
-
 
     steps:
       - name: Checkout Repository
@@ -105,7 +106,8 @@ jobs:
             ## 🎬 ReelFren Downloader Desktop Release (${{ needs.release-metadata.outputs.release_tag }})
 
             ### 📦 Download Assets:
-            - **macOS (Apple Silicon M-Series)**: `.dmg`
+            - **macOS (Apple Silicon M1/M2/M3/M4)**: `.dmg`
+            - **macOS (Intel)**: `.dmg`
             - **Windows (x64)**: `.exe` installer / setup
 
             ### ✨ Key Features:

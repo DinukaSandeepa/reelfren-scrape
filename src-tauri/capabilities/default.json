@@ -4,6 +4,9 @@
   "description": "Default permissions for ReelFren Desktop App",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "shell:allow-sidecar",
+    "shell:allow-open",
+    "shell:allow-execute"
   ]
 }
