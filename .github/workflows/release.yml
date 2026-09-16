@@ -57,7 +57,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
+          cache: 'npm'
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -79,13 +80,12 @@ jobs:
       - name: Install FFmpeg (macOS)
         if: runner.os == 'macOS'
         run: |
-          command -v ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+          brew install ffmpeg
 
       - name: Install FFmpeg (Windows)
         if: runner.os == 'Windows'
         run: |
-          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg }
-
+          choco install ffmpeg
 
       - name: Build Python Sidecar Binary
         run: |
