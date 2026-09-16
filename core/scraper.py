@@ -199,8 +199,9 @@ class ReelFrenScraper:
         return False
 
     def extract_drama_metadata(self) -> Dict[str, str]:
-        """Extracts drama title and details from the page."""
+        """Extracts drama title and poster details from the page."""
         title = "Unknown Drama"
+        poster_url = None
         try:
             h1 = self.page.locator("h1").first
             if h1.count() > 0:
@@ -213,6 +214,17 @@ class ReelFrenScraper:
                     if (og && og.content) return og.content;
                     return document.title;
                 }""")
+                
+            # Extract poster image
+            poster_url = self.page.evaluate("""() => {
+                const ogImg = document.querySelector('meta[property="og:image"]');
+                if (ogImg && ogImg.content) return ogImg.content;
+                const twImg = document.querySelector('meta[property="twitter:image"]');
+                if (twImg && twImg.content) return twImg.content;
+                const cover = document.querySelector('img[class*="poster"], img[class*="cover"], .drama-cover img');
+                if (cover && cover.src) return cover.src;
+                return null;
+            }""")
         except Exception as e:
             self.logger(f"Metadata extraction warning: {e}")
 
@@ -222,7 +234,9 @@ class ReelFrenScraper:
             title = "Drama"
 
         self.logger(f"Drama Title: {title}")
-        return {"title": title}
+        if poster_url:
+            self.logger(f"Drama Poster URL: {poster_url[:90]}...")
+        return {"title": title, "poster_url": poster_url}
 
     def extract_all_episodes(self) -> List[Dict[str, Any]]:
         """
@@ -416,10 +430,20 @@ class ReelFrenScraper:
 
             metadata = self.extract_drama_metadata()
             title = metadata["title"]
+            poster_url = metadata.get("poster_url")
             safe_title = sanitize_filename(title)
 
             drama_output_dir = DOWNLOADS_DIR / safe_title
-            self.guide = EpisodeGuide(drama_title=title, drama_url=self.drama_url, output_dir=drama_output_dir)
+            self.guide = EpisodeGuide(
+                drama_title=title,
+                drama_url=self.drama_url,
+                output_dir=drama_output_dir,
+                poster_url=poster_url
+            )
+
+            # Download official poster if available
+            if poster_url:
+                self.guide.download_poster()
 
             episodes = self.extract_all_episodes()
             if not episodes:

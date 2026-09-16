@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import uuid
+import asyncio
 import threading
 import subprocess
 from pathlib import Path
@@ -13,11 +14,20 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from core.config import PROJECT_ROOT, DOWNLOADS_DIR, HOST, PORT
-from core.guide import EpisodeGuide
+from core.config import (
+    PROJECT_ROOT,
+    DOWNLOADS_DIR,
+    HOST,
+    PORT,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHANNEL_ID,
+    AUTO_UPLOAD_TELEGRAM,
+)
+from core.guide import EpisodeGuide, format_size
 from core.scraper import ReelFrenScraper
 from core.downloader import EpisodeDownloader
 from core.merger import VideoMerger
+from core.telegram_uploader import TelegramUploader
 
 
 app = FastAPI(title="ReelFren Downloader & Merger")
@@ -38,7 +48,7 @@ class JobState:
         self.job_id = job_id
         self.drama_url = drama_url
         self.drama_title = ""
-        self.status = "starting"  # starting, turnstile_wait, scraping, downloading, merging, completed, failed, cancelled
+        self.status = "starting"  # starting, turnstile_wait, scraping, downloading, merging, uploading, completed, failed, cancelled
         self.status_message = "Initializing job..."
         self.logs: List[str] = []
         self.episodes: List[Dict[str, Any]] = []
@@ -48,8 +58,12 @@ class JobState:
         self.episode_progress = 0.0
         self.overall_progress = 0.0
         self.merge_status = "Pending"
+        self.upload_status = "Pending"  # Pending, In Progress, Uploaded, Failed, Skipped
+        self.upload_progress = 0.0
+        self.upload_speed = "0.0 MB/s"
         self.output_video: Optional[str] = None
         self.output_dir: Optional[str] = None
+        self.telegram_message_id: Optional[int] = None
 
         self.cancelled = False
         self.turnstile_verified = False
@@ -74,8 +88,12 @@ class JobState:
             "episode_progress": self.episode_progress,
             "overall_progress": self.overall_progress,
             "merge_status": self.merge_status,
+            "upload_status": self.upload_status,
+            "upload_progress": self.upload_progress,
+            "upload_speed": self.upload_speed,
             "output_video": self.output_video,
             "output_dir": self.output_dir,
+            "telegram_message_id": self.telegram_message_id,
         }
 
 
@@ -85,6 +103,7 @@ jobs: Dict[str, JobState] = {}
 
 class StartJobRequest(BaseModel):
     drama_url: str
+    auto_upload: Optional[bool] = None
 
 
 class FolderRequest(BaseModel):
@@ -95,8 +114,68 @@ class PlayRequest(BaseModel):
     video_path: Optional[str] = None
 
 
-def run_pipeline(job: JobState):
-    """Background worker executing the full scrape -> download -> strict merge flow."""
+def do_telegram_upload(job: JobState):
+    """Uploads the merged video to Telegram channel via wzgram."""
+    if not job.output_video or not os.path.exists(job.output_video):
+        job.add_log("Upload error: Merged video file not found.")
+        job.upload_status = "Failed"
+        return
+
+    uploader = TelegramUploader(logger_func=job.add_log)
+    if not uploader.is_configured():
+        job.add_log("Notice: Telegram credentials not configured in .env. Skipping Telegram upload.")
+        job.upload_status = "Skipped"
+        return
+
+    job.status = "uploading"
+    job.upload_status = "In Progress"
+    job.status_message = "Uploading playable video to Telegram channel via wzgram..."
+    job.add_log("Preparing playable video upload to Telegram channel via wzgram...")
+
+    video_p = Path(job.output_video)
+    poster_p = job.guide.poster_path if (job.guide and job.guide.poster_path.exists()) else None
+
+    quality_label = "1080p Ultra HD"
+    if job.episodes and job.episodes[0].get("quality"):
+        q = str(job.episodes[0].get("quality"))
+        if "720" in q:
+            quality_label = "720p HD"
+        elif "1080" in q:
+            quality_label = "1080p Ultra HD"
+        else:
+            quality_label = q
+
+    caption = (
+        f"🎬 **{job.drama_title}**\n\n"
+        f"📺 **Total Episodes:** {len(job.episodes)}\n"
+        f"✨ **Quality:** {quality_label}\n"
+        f"📁 **File Size:** {format_size(video_p.stat().st_size)}"
+    )
+
+    def on_up_progress(pct: float, speed: str, cur: int, tot: int):
+        job.upload_progress = pct
+        job.upload_speed = speed
+        job.status_message = f"Uploading to Telegram: {pct:.1f}% ({speed})..."
+
+    try:
+        res = asyncio.run(
+            uploader.upload_playable_video(
+                video_path=video_p,
+                caption=caption,
+                poster_path=poster_p,
+                progress_callback=on_up_progress,
+            )
+        )
+        job.upload_status = "Uploaded"
+        job.telegram_message_id = res.get("message_id")
+        job.add_log(f"🎉 Telegram Upload Complete! Message ID: {res.get('message_id')}")
+    except Exception as e:
+        job.upload_status = "Failed"
+        job.add_log(f"❌ Telegram upload error: {e}")
+
+
+def run_pipeline(job: JobState, auto_upload: bool = True):
+    """Background worker executing scrape -> download -> strict merge -> wzgram upload."""
     job.add_log(f"Starting process for drama URL: {job.drama_url}")
 
     scraper = None
@@ -115,7 +194,7 @@ def run_pipeline(job: JobState):
             elif evt_type == "episodes_loaded":
                 job.episodes = data
                 job.status = "scraping"
-                job.status_message = f"Found {len(data)} episodes. Resolving highest quality streams..."
+                job.status_message = f"Found {len(data)} episodes. Resolving 1080p streams..."
                 job.overall_progress = 20.0
 
         scraper = ReelFrenScraper(
@@ -123,7 +202,7 @@ def run_pipeline(job: JobState):
             logger=job.add_log,
             event_callback=scraper_event,
             is_cancelled=lambda: job.cancelled,
-            is_verified=lambda: job.turnstile_verified
+            is_verified=lambda: job.turnstile_verified,
         )
         job.active_scraper = scraper
 
@@ -142,12 +221,12 @@ def run_pipeline(job: JobState):
         if total_eps == 0:
             raise RuntimeError("No episodes were found to download.")
 
-        job.add_log(f"Episode guide initialized: {total_eps} episodes identified in highest quality.")
+        job.add_log(f"Episode guide initialized: {total_eps} episodes identified in 1080p.")
         job.overall_progress = 30.0
 
         # STEP 2: Downloader with Multi-Round Retries
         job.status = "downloading"
-        job.status_message = f"Downloading {total_eps} episodes in highest quality..."
+        job.status_message = f"Downloading {total_eps} episodes in 1080p..."
 
         def on_dl_progress(ep_num: int, pct: float, speed: str, downloaded: int, total: int):
             job.current_episode = ep_num
@@ -156,15 +235,19 @@ def run_pipeline(job: JobState):
 
             completed_eps = sum(1 for e in guide.episodes if e.get("status") == "downloaded")
             fraction = (completed_eps + (pct / 100.0)) / total_eps
-            job.overall_progress = 30.0 + (fraction * 55.0)
-            job.status_message = f"Downloading Episode {ep_num} ({completed_eps}/{total_eps})..."
+            job.overall_progress = 30.0 + (fraction * 45.0)
+            active_eps = [e["episode"] for e in guide.episodes if e.get("status") == "downloading"]
+            if len(active_eps) > 1:
+                job.status_message = f"Downloading Episodes {active_eps[:4]} ({completed_eps}/{total_eps} completed)..."
+            else:
+                job.status_message = f"Downloading Episode {ep_num} ({completed_eps}/{total_eps})..."
             job.episodes = guide.episodes
 
         downloader = EpisodeDownloader(
             guide=guide,
             logger=job.add_log,
             progress_callback=on_dl_progress,
-            is_cancelled=lambda: job.cancelled
+            is_cancelled=lambda: job.cancelled,
         )
 
         all_downloaded = downloader.download_all()
@@ -186,7 +269,7 @@ def run_pipeline(job: JobState):
             job.add_log(f"❌ {err_msg} All episodes must be successfully downloaded before merging.")
             return
 
-        job.overall_progress = 85.0
+        job.overall_progress = 75.0
 
         # STEP 3: Merging with FFmpeg
         job.status = "merging"
@@ -198,11 +281,21 @@ def run_pipeline(job: JobState):
         output_file = merger.merge_episodes()
 
         job.output_video = str(output_file)
-        job.status = "completed"
-        job.status_message = f"All {total_eps} episodes downloaded in highest quality and merged!"
         job.merge_status = "Completed"
+        job.overall_progress = 85.0
+        job.add_log(f"🎉 FFmpeg Merge Complete! Output: {output_file.name}")
+
+        # STEP 4: Auto-upload to Telegram channel via wzgram
+        should_upload = auto_upload and AUTO_UPLOAD_TELEGRAM and TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID
+        if should_upload:
+            do_telegram_upload(job)
+
+        job.status = "completed"
         job.overall_progress = 100.0
-        job.add_log(f"🎉 Process Complete! Output: {output_file.name}")
+        if job.upload_status == "Uploaded":
+            job.status_message = f"All {total_eps} episodes downloaded, merged, and uploaded to Telegram!"
+        else:
+            job.status_message = f"All {total_eps} episodes downloaded and merged successfully!"
 
     except Exception as e:
         job.status = "failed"
@@ -214,7 +307,7 @@ def run_pipeline(job: JobState):
 
 
 def run_retry_pipeline(job: JobState):
-    """Retries downloading only failed episodes, then proceeds to merge."""
+    """Retries downloading only failed episodes, then proceeds to merge and upload."""
     guide = job.guide
     if not guide:
         job.status = "failed"
@@ -233,15 +326,19 @@ def run_retry_pipeline(job: JobState):
         job.download_speed = speed
         completed_eps = sum(1 for e in guide.episodes if e.get("status") == "downloaded")
         fraction = (completed_eps + (pct / 100.0)) / total_eps
-        job.overall_progress = 30.0 + (fraction * 55.0)
-        job.status_message = f"Retrying Episode {ep_num} ({completed_eps}/{total_eps})..."
+        job.overall_progress = 30.0 + (fraction * 45.0)
+        active_eps = [e["episode"] for e in guide.episodes if e.get("status") == "downloading"]
+        if len(active_eps) > 1:
+            job.status_message = f"Retrying Episodes {active_eps[:4]} ({completed_eps}/{total_eps} completed)..."
+        else:
+            job.status_message = f"Retrying Episode {ep_num} ({completed_eps}/{total_eps})..."
         job.episodes = guide.episodes
 
     downloader = EpisodeDownloader(
         guide=guide,
         logger=job.add_log,
         progress_callback=on_dl_progress,
-        is_cancelled=lambda: job.cancelled
+        is_cancelled=lambda: job.cancelled,
     )
 
     all_downloaded = downloader.download_all()
@@ -267,11 +364,16 @@ def run_retry_pipeline(job: JobState):
         output_file = merger.merge_episodes()
 
         job.output_video = str(output_file)
-        job.status = "completed"
-        job.status_message = f"All {total_eps} episodes downloaded and merged!"
         job.merge_status = "Completed"
+        job.overall_progress = 85.0
+        job.add_log(f"🎉 Complete output: {output_file.name}")
+
+        if AUTO_UPLOAD_TELEGRAM and TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID:
+            do_telegram_upload(job)
+
+        job.status = "completed"
         job.overall_progress = 100.0
-        job.add_log(f"🎉 Retry succeeded! Complete output: {output_file.name}")
+        job.status_message = f"All {total_eps} episodes downloaded, merged, and uploaded to Telegram!"
     except Exception as e:
         job.status = "failed"
         job.status_message = f"Merge error: {e}"
@@ -292,11 +394,13 @@ def start_job(req: StartJobRequest):
     if not req.drama_url or not req.drama_url.startswith("http"):
         raise HTTPException(status_code=400, detail="A valid drama URL is required.")
 
+    auto_up = req.auto_upload if req.auto_upload is not None else True
+
     job_id = str(uuid.uuid4())[:8]
     job = JobState(job_id=job_id, drama_url=req.drama_url)
     jobs[job_id] = job
 
-    thread = threading.Thread(target=run_pipeline, args=(job,), daemon=True)
+    thread = threading.Thread(target=run_pipeline, args=(job, auto_up), daemon=True)
     thread.start()
 
     return {"job_id": job_id, "status": "started"}
@@ -315,6 +419,21 @@ def retry_failed_episodes(job_id: str):
     thread.start()
 
     return {"status": "retrying", "job_id": job_id}
+
+
+@app.post("/api/upload-telegram/{job_id}")
+def manual_telegram_upload(job_id: str):
+    """Manually trigger Telegram video upload for a merged video."""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    if not job.output_video or not os.path.exists(job.output_video):
+        raise HTTPException(status_code=400, detail="Merged video not found for this job.")
+
+    thread = threading.Thread(target=do_telegram_upload, args=(job,), daemon=True)
+    thread.start()
+
+    return {"status": "upload_started", "job_id": job_id}
 
 
 @app.get("/api/events/{job_id}")

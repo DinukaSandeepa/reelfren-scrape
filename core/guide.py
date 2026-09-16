@@ -1,3 +1,4 @@
+import threading
 import re
 import json
 from pathlib import Path
@@ -34,7 +35,7 @@ def format_size(bytes_val: int) -> str:
 
 
 class EpisodeGuide:
-    def __init__(self, drama_title: str, drama_url: str, output_dir: Path):
+    def __init__(self, drama_title: str, drama_url: str, output_dir: Path, poster_url: Optional[str] = None):
         self.drama_title = sanitize_filename(drama_title)
         self.drama_url = drama_url
         self.output_dir = Path(output_dir)
@@ -45,9 +46,29 @@ class EpisodeGuide:
         self.guide_file = self.output_dir / "episode_guide.json"
         self.text_guide_file = self.output_dir / "episode_guide.txt"
         self.chapters_file = self.output_dir / "chapters.txt"
+        self.poster_path = self.output_dir / "poster.jpg"
+        self.poster_url = poster_url
         
+        self._lock = threading.RLock()
         self.episodes: List[Dict[str, Any]] = []
         self.load()
+
+    def download_poster(self, poster_url: Optional[str] = None) -> Optional[Path]:
+        """Downloads the official drama poster to output_dir/poster.jpg."""
+        import requests
+        url = poster_url or self.poster_url
+        if not url:
+            return None
+        if self.poster_path.exists() and self.poster_path.stat().st_size > 5000:
+            return self.poster_path
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200 and len(r.content) > 5000:
+                self.poster_path.write_bytes(r.content)
+                return self.poster_path
+        except Exception:
+            pass
+        return None
 
     def set_episodes(self, raw_episodes: List[Dict[str, Any]]) -> None:
         """
@@ -56,61 +77,65 @@ class EpisodeGuide:
         """
         sorted_eps = sorted(raw_episodes, key=lambda x: (x.get("episode", 0), natural_sort_key(x.get("title", ""))))
         
-        existing_map = {e["episode"]: e for e in self.episodes}
-        merged_list = []
-        for ep_data in sorted_eps:
-            ep_num = ep_data["episode"]
-            existing = existing_map.get(ep_num, {})
-            
-            filename = f"ep_{ep_num:03d}.mp4"
-            local_path = str(self.episodes_dir / filename)
-            
-            # Check if file exists on disk
-            file_exists = Path(local_path).exists() and Path(local_path).stat().st_size > 50000
-            file_size = Path(local_path).stat().st_size if file_exists else existing.get("file_size", 0)
-            status = "downloaded" if file_exists else existing.get("status", "pending")
+        with self._lock:
+            existing_map = {e["episode"]: e for e in self.episodes}
+            merged_list = []
+            for ep_data in sorted_eps:
+                ep_num = ep_data["episode"]
+                existing = existing_map.get(ep_num, {})
+                
+                filename = f"ep_{ep_num:03d}.mp4"
+                local_path = str(self.episodes_dir / filename)
+                
+                # Check if file exists on disk
+                file_exists = Path(local_path).exists() and Path(local_path).stat().st_size > 50000
+                file_size = Path(local_path).stat().st_size if file_exists else existing.get("file_size", 0)
+                status = "downloaded" if file_exists else existing.get("status", "pending")
 
-            merged_list.append({
-                "episode": ep_num,
-                "title": ep_data.get("title", f"EP {ep_num}"),
-                "watch_url": ep_data.get("watch_url", ""),
-                "video_url": ep_data.get("video_url") or existing.get("video_url"),
-                "quality": ep_data.get("quality") or existing.get("quality", "1080p"),
-                "local_path": local_path,
-                "file_size": file_size,
-                "duration": existing.get("duration", 0.0),
-                "status": status,
-                "error": None if file_exists else existing.get("error", None)
-            })
-            
-        self.episodes = merged_list
-        self.save()
+                merged_list.append({
+                    "episode": ep_num,
+                    "title": ep_data.get("title", f"EP {ep_num}"),
+                    "watch_url": ep_data.get("watch_url", ""),
+                    "video_url": ep_data.get("video_url") or existing.get("video_url"),
+                    "quality": ep_data.get("quality") or existing.get("quality", "1080p"),
+                    "local_path": local_path,
+                    "file_size": file_size,
+                    "duration": existing.get("duration", 0.0),
+                    "status": status,
+                    "error": None if file_exists else existing.get("error", None)
+                })
+                
+            self.episodes = merged_list
+            self.save()
 
     def update_episode(self, episode_num: int, **kwargs) -> None:
-        for ep in self.episodes:
-            if ep["episode"] == episode_num:
-                ep.update(kwargs)
-                break
-        self.save()
+        with self._lock:
+            for ep in self.episodes:
+                if ep["episode"] == episode_num:
+                    ep.update(kwargs)
+                    break
+            self.save()
 
     def get_failed_episodes(self) -> List[Dict[str, Any]]:
         """Returns list of episodes that are not yet downloaded successfully."""
-        failed = []
-        for ep in self.episodes:
-            local = Path(ep.get("local_path", ""))
-            if ep.get("status") != "downloaded" or not local.exists() or local.stat().st_size < 50000:
-                failed.append(ep)
-        return failed
+        with self._lock:
+            failed = []
+            for ep in self.episodes:
+                local = Path(ep.get("local_path", ""))
+                if ep.get("status") != "downloaded" or not local.exists() or local.stat().st_size < 50000:
+                    failed.append(ep)
+            return failed
 
     def save(self) -> None:
-        data = {
-            "drama_title": self.drama_title,
-            "drama_url": self.drama_url,
-            "total_episodes": len(self.episodes),
-            "episodes": self.episodes
-        }
-        with open(self.guide_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        with self._lock:
+            data = {
+                "drama_title": self.drama_title,
+                "drama_url": self.drama_url,
+                "total_episodes": len(self.episodes),
+                "episodes": self.episodes
+            }
+            with open(self.guide_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
 
     def load(self) -> None:
         if self.guide_file.exists():
