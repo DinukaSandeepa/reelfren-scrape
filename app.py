@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import time
@@ -8,7 +9,7 @@ import asyncio
 import threading
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -46,9 +47,11 @@ TEMPLATES_DIR = PROJECT_ROOT / "templates"
 
 
 class JobState:
-    def __init__(self, job_id: str, drama_url: str):
+    def __init__(self, job_id: str, drama_url: str, start_ep: int = 1, end_ep: Optional[int] = None):
         self.job_id = job_id
         self.drama_url = drama_url
+        self.start_ep = start_ep
+        self.end_ep = end_ep
         self.drama_title = ""
         self.status = "starting"  # starting, turnstile_wait, scraping, downloading, merging, uploading, completed, failed, cancelled
         self.status_message = "Initializing job..."
@@ -108,6 +111,36 @@ jobs: Dict[str, JobState] = {}
 class StartJobRequest(BaseModel):
     drama_url: str
     auto_upload: Optional[bool] = None
+    ep_range: Optional[str] = None  # e.g. "181-200", "5", "50-"
+
+
+def parse_ep_range(raw: Optional[str]) -> Tuple[int, Optional[int]]:
+    """
+    Parses an optional episode range string into (start_ep, end_ep).
+    Accepted formats: "" / None (all), "5" (single episode), "10-20", "50-" (50 to last).
+    end_ep is None when open-ended. Raises ValueError on invalid input.
+    """
+    if not raw or not raw.strip():
+        return 1, None
+
+    text = raw.strip().replace(" ", "").replace("–", "-").replace("—", "-")
+    m = re.fullmatch(r"(\d+)(?:(-)(\d*))?", text)
+    if not m:
+        raise ValueError(f"Invalid episode range '{raw}'. Use formats like 181-200, 5, or 50-.")
+
+    start = int(m.group(1))
+    if start < 1:
+        raise ValueError("Episode numbers start at 1.")
+
+    if m.group(2) is None:
+        return start, start  # single episode
+    if m.group(3) == "":
+        return start, None  # open-ended
+
+    end = int(m.group(3))
+    if end < start:
+        raise ValueError(f"Invalid episode range '{raw}': end ({end}) is before start ({start}).")
+    return start, end
 
 
 class FolderRequest(BaseModel):
@@ -235,6 +268,8 @@ def do_telegram_upload(job: JobState):
 def run_pipeline(job: JobState, auto_upload: bool = True):
     """Background worker executing scrape -> download -> strict merge -> wzgram upload."""
     job.add_log(f"Starting process for drama URL: {job.drama_url}")
+    if job.start_ep != 1 or job.end_ep is not None:
+        job.add_log(f"Episode range requested: {job.start_ep}-{job.end_ep if job.end_ep else 'end'}")
 
     scraper = None
     try:
@@ -261,6 +296,8 @@ def run_pipeline(job: JobState, auto_upload: bool = True):
             event_callback=scraper_event,
             is_cancelled=lambda: job.cancelled,
             is_verified=lambda: job.turnstile_verified,
+            start_ep=job.start_ep,
+            end_ep=job.end_ep,
         )
         job.active_scraper = scraper
 
@@ -463,8 +500,13 @@ def start_job(req: StartJobRequest):
 
     auto_up = req.auto_upload if req.auto_upload is not None else True
 
+    try:
+        start_ep, end_ep = parse_ep_range(req.ep_range)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     job_id = str(uuid.uuid4())[:8]
-    job = JobState(job_id=job_id, drama_url=req.drama_url)
+    job = JobState(job_id=job_id, drama_url=req.drama_url, start_ep=start_ep, end_ep=end_ep)
     jobs[job_id] = job
 
     thread = threading.Thread(target=run_pipeline, args=(job, auto_up), daemon=True)

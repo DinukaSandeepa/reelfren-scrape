@@ -93,11 +93,17 @@
               <input
                 type="url"
                 id="drama-url"
-                value="https://reelfren.com/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en"
-                placeholder="https://reelfren.com/drama/dramabox/..."
+                placeholder="https://reelfren.net/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en"
                 class="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
               />
             </div>
+            <input
+              type="text"
+              id="ep-range"
+              placeholder="Range (e.g. 181-200)"
+              title="Optional episode range (leave blank for all episodes)"
+              class="w-full sm:w-56 px-3.5 py-3 bg-slate-950 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm font-mono"
+            />
             <button
               id="start-btn"
               onclick="startJob()"
@@ -402,6 +408,7 @@
     async function startJob() {
       const urlInput = document.getElementById('drama-url');
       const dramaUrl = urlInput.value.trim();
+      const epRange = document.getElementById('ep-range').value.trim();
       const autoUpload = document.getElementById('auto-upload-tg').checked;
 
       if (!dramaUrl) {
@@ -415,7 +422,7 @@
       document.getElementById('progress-container').classList.remove('hidden');
       document.getElementById('completed-banner').classList.add('hidden');
       document.getElementById('failed-alert').classList.add('hidden');
-      
+
       setStep(1);
       document.getElementById('status-text').innerText = 'Starting...';
       document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
@@ -424,13 +431,17 @@
         const res = await fetch('/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ drama_url: dramaUrl, auto_upload: autoUpload })
+          body: JSON.stringify({
+            drama_url: dramaUrl,
+            auto_upload: autoUpload,
+            ep_range: epRange || null
+          })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Failed to start job');
 
         currentJobId = data.job_id;
-        addLog(`Started job ${currentJobId} for ${dramaUrl}`);
+        addLog(`Started job ${currentJobId} for ${dramaUrl}${epRange ? ` (range: ${epRange})` : ''}`);
         connectSSE(currentJobId);
       } catch (err) {
         alert('Error starting job: ' + err.message);
