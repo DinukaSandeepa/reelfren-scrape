@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def parse_drama_url_params(url: str) -> Dict[str, str]:
     """
     Parses provider, drama_id, and lang from a ReelFren drama or watch URL.
-    Example: https://reelfren.com/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en
+    Example: https://reelfren.net/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en
     -> provider='dramabox', drama_id='42000023802', lang='en'
     """
     parsed = urlparse(url)
@@ -83,12 +83,16 @@ class ReelFrenScraper:
         event_callback: Optional[Callable[[str, Any], None]] = None,
         is_cancelled: Optional[Callable[[], bool]] = None,
         is_verified: Optional[Callable[[], bool]] = None,
+        start_ep: int = 1,
+        end_ep: Optional[int] = None,
     ):
         self.drama_url = drama_url.strip()
         self.logger = logger or (lambda msg: print(f"[Scraper] {msg}"))
         self.event_callback = event_callback or (lambda evt, data: None)
         self.is_cancelled = is_cancelled or (lambda: False)
         self.is_verified = is_verified or (lambda: False)
+        self.start_ep = max(1, start_ep)
+        self.end_ep = end_ep
         self.user_data_dir = BROWSER_DATA_DIR
 
         self._camoufox_instance = None
@@ -238,6 +242,46 @@ class ReelFrenScraper:
             self.logger(f"Drama Poster URL: {poster_url[:90]}...")
         return {"title": title, "poster_url": poster_url}
 
+    def _extract_total_episodes_from_page(self) -> int:
+        """
+        Reads the total episode count from the drama detail page.
+        Sources, in order of preference:
+          1. JSON-LD TVSeries "numberOfEpisodes"
+          2. <span class="chip">200 Episode</span>
+          3. Last option of the episode range <select> (e.g. "181-200")
+        Returns 0 if nothing could be determined.
+        """
+        try:
+            result = self.page.evaluate("""() => {
+                // 1. JSON-LD
+                for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+                    try {
+                        const data = JSON.parse(s.textContent);
+                        const items = Array.isArray(data) ? data : [data];
+                        for (const it of items) {
+                            if (it && it.numberOfEpisodes) return parseInt(it.numberOfEpisodes, 10);
+                        }
+                    } catch (e) {}
+                }
+                // 2. Episode chip in HTML
+                for (const el of document.querySelectorAll('span.chip, .chip')) {
+                    const m = (el.textContent || '').trim().match(/^(\\d+)\\s*Episodes?$/i);
+                    if (m) return parseInt(m[1], 10);
+                }
+                // 3. Episode range select
+                const sel = document.querySelector('.episode-range-select select');
+                if (sel && sel.options.length) {
+                    const last = sel.options[sel.options.length - 1].textContent || '';
+                    const m = last.match(/(\\d+)\\s*$/);
+                    if (m) return parseInt(m[1], 10);
+                }
+                return 0;
+            }""")
+            return int(result or 0)
+        except Exception as e:
+            self.logger(f"Total episode page extraction notice: {e}")
+            return 0
+
     def extract_all_episodes(self) -> List[Dict[str, Any]]:
         """
         Discovers all episodes using both page grid and backend API.
@@ -251,42 +295,41 @@ class ReelFrenScraper:
 
         self.logger(f"Detected drama parameters: provider={provider}, id={drama_id}, lang={lang}")
 
-        # 1. Fetch EP 1 to discover total episodes and verify API access
-        total_episodes = 0
-        try:
-            first_ep_info = self.page.evaluate(f"""async () => {{
-                try {{
-                    const url = "https://api.reelfren.com/api/video?provider={provider}&id={drama_id}&ep=1&lang={lang}&server=1&cv=v21";
-                    const resp = await fetch(url);
-                    return await resp.json();
-                }} catch (e) {{
-                    return {{ error: e.message }};
-                }}
-            }}""")
-            if first_ep_info and not first_ep_info.get("error"):
-                total_episodes = first_ep_info.get("totalEpisodes", 0)
-                self.logger(f"API confirmed total episodes: {total_episodes}")
-        except Exception as e:
-            self.logger(f"API query notice: {e}")
+        # 1. Discover total episodes from the drama detail page HTML
+        #    (the API's "totalEpisodes" just echoes the requested episode number).
+        page_total = self._extract_total_episodes_from_page()
+        if page_total > 0:
+            self.logger(f"Drama page reports {page_total} total episodes.")
+        else:
+            self.logger("Could not read total episodes from drama page.")
 
-        # Also inspect page grid count
-        try:
-            grid_count = self.page.locator(".episode-grid a, a.episode-link").count()
-            if grid_count > total_episodes:
-                total_episodes = grid_count
-        except Exception:
-            pass
+        total_episodes = page_total
+        if total_episodes <= 0:
+            # Fallback: count visible episode links (paginated, so a lower bound only)
+            try:
+                total_episodes = self.page.locator(".episode-grid a, a.episode-link").count()
+            except Exception:
+                total_episodes = 0
 
         if total_episodes <= 0:
-            total_episodes = 20  # Fallback default
+            total_episodes = self.end_ep or 20  # Last-resort default
+
+        start_ep = self.start_ep
+        end_ep = self.end_ep if self.end_ep else total_episodes
+        if page_total > 0 and end_ep > page_total:
+            self.logger(f"Requested end episode {end_ep} exceeds total {page_total}; clamping.")
+            end_ep = page_total
+
+        if start_ep > end_ep:
+            raise ValueError(f"Invalid episode range: {start_ep}-{end_ep}")
 
         self.logger(f"Processing guide for {total_episodes} episodes in HIGHEST quality...")
         self.event_callback("status", f"Extracting {total_episodes} episodes in highest quality (1080p)...")
 
         # 2. Build episodes list and fetch stream metadata in batches with retry
         episodes_map: Dict[int, Dict[str, Any]] = {}
-        for ep_num in range(1, total_episodes + 1):
-            watch_url = f"https://reelfren.com/watch/{provider}/{drama_id}?ep={ep_num}&lang={lang}"
+        for ep_num in range(start_ep, end_ep + 1):
+            watch_url = f"https://reelfren.net/watch/{provider}/{drama_id}?ep={ep_num}&lang={lang}"
             episodes_map[ep_num] = {
                 "episode": ep_num,
                 "title": f"EP {ep_num}",
@@ -298,11 +341,12 @@ class ReelFrenScraper:
 
         # Fetch video URLs in batches of 5
         batch_size = 5
-        for start_idx in range(1, total_episodes + 1, batch_size):
+        # Change range(1, total_episodes + 1, batch_size) ->
+        for start_idx in range(start_ep, end_ep + 1, batch_size):
             if self.is_cancelled():
                 return list(episodes_map.values())
 
-            end_idx = min(start_idx + batch_size, total_episodes + 1)
+            end_idx = min(start_idx + batch_size, end_ep + 1)
             ep_batch = list(range(start_idx, end_idx))
 
             batch_results = self._fetch_episodes_batch_with_retry(provider, drama_id, lang, ep_batch)
@@ -350,7 +394,7 @@ class ReelFrenScraper:
                 const out = [];
                 for (const ep of eps) {{
                     try {{
-                        const url = "https://api.reelfren.com/api/video?provider={provider}&id={drama_id}&ep=" + ep + "&lang={lang}&server=1&cv=v21";
+                        const url = "https://api.reelfren.net/api/video?provider={provider}&id={drama_id}&ep=" + ep + "&lang={lang}&server=1&cv=v21";
                         const resp = await fetch(url);
                         if (!resp.ok) throw new Error("HTTP " + resp.status);
                         const data = await resp.json();

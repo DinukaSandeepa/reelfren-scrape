@@ -235,11 +235,6 @@ class EpisodeDownloader:
         local_path = Path(ep_data["local_path"])
         quality = ep_data.get("quality", "1080p")
 
-        if not video_url:
-            self.logger(f"Error: Episode {ep_num} has no video URL to download.")
-            self.guide.update_episode(ep_num, status="failed", error="No video URL")
-            return False
-
         if self.is_cancelled():
             return False
 
@@ -251,10 +246,16 @@ class EpisodeDownloader:
             dur = ep_data.get("duration", 0.0)
             if dur <= 0:
                 dur = get_video_duration(local_path)
-            self.guide.update_episode(ep_num, status="downloaded", file_size=current_size, duration=dur)
-            if self.progress_callback:
-                self.progress_callback(ep_num, 100.0, "Cached", current_size, current_size)
-            return True
+            if dur > 0:
+                self.guide.update_episode(ep_num, status="downloaded", file_size=current_size, duration=dur)
+                if self.progress_callback:
+                    self.progress_callback(ep_num, 100.0, "Cached", current_size, current_size)
+                return True
+
+        if not video_url:
+            self.logger(f"Error: Episode {ep_num} has no video URL to download.")
+            self.guide.update_episode(ep_num, status="failed", error="No video URL")
+            return False
 
         for attempt in range(1, max_attempts + 1):
             if self.is_cancelled():
@@ -326,6 +327,7 @@ class EpisodeDownloader:
 
         # 1. Filter episodes that need download
         to_download = []
+        skipped = 0
         for ep in episodes:
             if self.is_cancelled():
                 self.logger("Download queue cancelled.")
@@ -336,9 +338,20 @@ class EpisodeDownloader:
                 dur = ep.get("duration", 0.0)
                 if dur <= 0:
                     dur = get_video_duration(local)
-                self.guide.update_episode(ep["episode"], status="downloaded", file_size=local.stat().st_size, duration=dur)
-            else:
-                to_download.append(ep)
+                if dur > 0:
+                    self.guide.update_episode(
+                        ep["episode"],
+                        status="downloaded",
+                        file_size=local.stat().st_size,
+                        duration=dur,
+                    )
+                    skipped += 1
+                    continue
+
+            to_download.append(ep)
+
+        if skipped:
+            self.logger(f"Skipped {skipped} already-downloaded episode(s) on disk.")
 
         # 2. Parallel First Pass
         if to_download:
