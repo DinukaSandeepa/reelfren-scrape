@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def parse_drama_url_params(url: str) -> Dict[str, str]:
     """
     Parses provider, drama_id, and lang from a ReelFren drama or watch URL.
-    Example: https://reelfren.com/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en
+    Example: https://reelfren.net/drama/dramabox/42000023802-he-broke-the-heart-that-saved-him?lang=en
     -> provider='dramabox', drama_id='42000023802', lang='en'
     """
     parsed = urlparse(url)
@@ -256,7 +256,7 @@ class ReelFrenScraper:
         try:
             first_ep_info = self.page.evaluate(f"""async () => {{
                 try {{
-                    const url = "https://api.reelfren.com/api/video?provider={provider}&id={drama_id}&ep=1&lang={lang}&server=1&cv=v21";
+                    const url = "https://api.reelfren.net/api/video?provider={provider}&id={drama_id}&ep=1&lang={lang}&server=1&cv=v21";
                     const resp = await fetch(url);
                     return await resp.json();
                 }} catch (e) {{
@@ -286,7 +286,7 @@ class ReelFrenScraper:
         # 2. Build episodes list and fetch stream metadata in batches with retry
         episodes_map: Dict[int, Dict[str, Any]] = {}
         for ep_num in range(1, total_episodes + 1):
-            watch_url = f"https://reelfren.com/watch/{provider}/{drama_id}?ep={ep_num}&lang={lang}"
+            watch_url = f"https://reelfren.net/watch/{provider}/{drama_id}?ep={ep_num}&lang={lang}"
             episodes_map[ep_num] = {
                 "episode": ep_num,
                 "title": f"EP {ep_num}",
@@ -350,7 +350,7 @@ class ReelFrenScraper:
                 const out = [];
                 for (const ep of eps) {{
                     try {{
-                        const url = "https://api.reelfren.com/api/video?provider={provider}&id={drama_id}&ep=" + ep + "&lang={lang}&server=1&cv=v21";
+                        const url = "https://api.reelfren.net/api/video?provider={provider}&id={drama_id}&ep=" + ep + "&lang={lang}&server=1&cv=v21";
                         const resp = await fetch(url);
                         if (!resp.ok) throw new Error("HTTP " + resp.status);
                         const data = await resp.json();
